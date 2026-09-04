@@ -262,22 +262,53 @@ void v_generate_key(const char *s_password, const unsigned char *h_salt, unsigne
    }
 }
 
-/* encrypt_block()
+
+/* encrypt_block(*text, *key)
  * 
- * Encrypts an 8-bit block of data using a modified pave cipher.
+ * A modified Parve/Treyfer block encryption routine. Changes include using 
+ * a bitwise exclusive OR to mitigate against the original slide attack, as 
+ * well as the used of a combination of logical and arithmetic operation to 
+ * generate the cipher text, and the isolation of each state between each 
+ * iteration.
  * 
  */
- 
-void v_encrypt_block(unsigned char *text, unsigned char const *key) {
-   unsigned char i_cascade;  /* Cascade result into next byte */
-   unsigned char i_text;  /* Position of text on substution block */
-   unsigned int i_count;
-   for (i_count = 0; i_count < BLOCK_SIZE * NUMROUNDS; i_count++) {
+
+void v_encrypt_block(unsigned char *text, unsigned char const *key) 
+{
+   unsigned char i_cascade;  /* Holds the intermediate substitution and cascade */
+   unsigned char i_text;     /* Holds the blended state of text, key, and counter */
+   unsigned int i_count;     /* The global step counter across all rounds */
+   
+   for (i_count = 0; i_count < BLOCK_SIZE * NUMROUNDS; i_count++) 
+   {
+      
+      /* Instead of reusing a static subkey (Treyfer) or using the addition 
+       * of a linear  counter  (Parve), this version combines an  exclusive 
+       * OR  operation with the addition to make the value vary  with  each 
+       * step.
+       * 
+       * Since the result is non-linear this also disrupts any  predictable 
+       * carry  propagation, making it harder for an attacker to trace  any 
+       * mathematical differences. */
+
       i_text = text[i_count % BLOCK_SIZE] + (key[i_count % KEY_SIZE] ^ (i_count & 0xFF));
+      
+      /* Borrowing  a  substitution table from the AES algorithm  helps  to 
+       * ensure the results of each step that even small differences in the 
+       * plain text result in large differences in the cipher text.  Adding 
+       * this  to  the  next adjacent byte cascades these  changes  forward
+       * triggering an avalanche effect that amplifies the effect. */
+       
       i_cascade = sbox[i_text] + text[(i_count + 1) % BLOCK_SIZE];
+
+      /* Using  a circular rotation to shift bit positions changes the  bit
+       * positions  before  the value becomes part of the next  byte  which 
+       * provides additional diffusion between bit positions. */
+
       text[(i_count + 1) % BLOCK_SIZE] = (i_cascade << 1) | (i_cascade >> 7);
    }
 }
+
 
 void v_decrypt_block(unsigned char *text, unsigned char const *key) 
 {
@@ -293,6 +324,7 @@ void v_decrypt_block(unsigned char *text, unsigned char const *key)
       text[(i_count + 1) % BLOCK_SIZE] = i_cascade - sbox[i_text];
    }
 }
+
 
 /* encrypt_stream()
  * 
@@ -328,6 +360,7 @@ void v_encrypt_stream(unsigned char const *key)
       fwrite(c_buffer, 1, BLOCK_SIZE, stdout);
    } while ( i_bytes == BLOCK_SIZE );
 }
+
 
 /* decrypt_stream()
  * 
